@@ -52,25 +52,97 @@ public class DatabaseService {
 
     public List<Map<String, Object>> executeQuery(String query, List<Object> params) {
         try {
+            // Loglama ekleyelim
+            System.out.println("Çalıştırılacak sorgu: " + query);
             if (params != null && !params.isEmpty()) {
-                return jdbcTemplate.queryForList(query, params.toArray());
+                System.out.println("Parametreler: " + params);
+
+                // Türkçe karakter içeren parametreleri kontrol et
+                List<Object> sanitizedParams = new ArrayList<>();
+                for (Object param : params) {
+                    if (param instanceof String) {
+                        // String parametreleri UTF-8 formatında olduğundan emin olalım
+                        String strParam = (String) param;
+                        sanitizedParams.add(strParam);
+                    } else {
+                        sanitizedParams.add(param);
+                    }
+                }
+                return jdbcTemplate.queryForList(query, sanitizedParams.toArray());
             } else {
                 return jdbcTemplate.queryForList(query);
             }
         } catch (Exception e) {
-            throw new RuntimeException("Sorgu çalıştırılırken hata: " + e.getMessage());
+            // Daha detaylı hata ayrıştırması
+            String errorMessage = e.getMessage();
+            if (errorMessage.contains("bad SQL grammar")) {
+                // SQL hatası ayrıştırma
+                String detailedMessage = "Sorgu hatası: ";
+
+                // Tablo veya sütun ismi sorunu
+                if (errorMessage.contains("Table") && errorMessage.contains("doesn't exist")) {
+                    detailedMessage += "Belirtilen tablo bulunamadı. ";
+                }
+                if (errorMessage.contains("Unknown column")) {
+                    detailedMessage += "Belirtilen sütun bulunamadı. ";
+                }
+
+                // Genel SQL yazım hatası
+                detailedMessage += "SQL yazımını kontrol ediniz. Türkçe karakterlerin (ı,İ,ş,ç,ğ,ö,ü) sorgulamada sorun çıkarabileceğini unutmayınız.";
+                throw new RuntimeException(detailedMessage + " Orijinal hata: " + errorMessage);
+            }
+
+            throw new RuntimeException("Sorgu çalıştırılırken hata: " + errorMessage);
         }
     }
 
     public int executeUpdate(String query, List<Object> params) {
         try {
+            // Sorguyu ve parametreleri logla
+            System.out.println("Çalıştırılacak güncelleme sorgusu: " + query);
+
             if (params != null && !params.isEmpty()) {
-                return jdbcTemplate.update(query, params.toArray());
+                System.out.println("Parametreler: " + params);
+
+                // NULL değerleri ve Türkçe karakterleri düzgün işleme
+                List<Object> sanitizedParams = new ArrayList<>();
+                for (Object param : params) {
+                    if (param instanceof String) {
+                        // String parametreleri UTF-8 formatında olduğundan emin olalım
+                        String strParam = (String) param;
+                        sanitizedParams.add(strParam.isEmpty() ? null : strParam);
+                    } else {
+                        // NULL değeri olduğu gibi bırakıyoruz
+                        sanitizedParams.add(param);
+                    }
+                }
+                return jdbcTemplate.update(query, sanitizedParams.toArray());
             } else {
                 return jdbcTemplate.update(query);
             }
         } catch (Exception e) {
-            throw new RuntimeException("Güncelleme çalıştırılırken hata: " + e.getMessage());
+            // Hata mesajını ayrıştır
+            String errorMessage = e.getMessage();
+            if (errorMessage.contains("bad SQL grammar")) {
+                String detailedMessage = "Sorgu hatası: ";
+
+                // Tablo veya sütun ismi sorunu
+                if (errorMessage.contains("Table") && errorMessage.contains("doesn't exist")) {
+                    detailedMessage += "Belirtilen tablo bulunamadı. ";
+                }
+                if (errorMessage.contains("Unknown column")) {
+                    detailedMessage += "Belirtilen sütun bulunamadı. ";
+                }
+                if (errorMessage.contains("NULL")) {
+                    detailedMessage += "NULL değeri uygun bir şekilde işlenemedi. ";
+                }
+
+                // Genel SQL yazım hatası
+                detailedMessage += "SQL yazımını kontrol ediniz. Türkçe karakterlerin (ı,İ,ş,ç,ğ,ö,ü) sorgulamada sorun çıkarabileceğini unutmayınız.";
+                throw new RuntimeException(detailedMessage + " Orijinal hata: " + errorMessage);
+            }
+
+            throw new RuntimeException("Güncelleme çalıştırılırken hata: " + errorMessage);
         }
     }
 
@@ -100,29 +172,25 @@ public class DatabaseService {
 
     public List<Map<String, Object>> getTableStructure(String tableName) {
         String dbType = getDatabaseType();
-        String query;
-        if (dbType.equals("postgresql")) {
-            // PostgreSQL'de tablo adını küçük harfe çevir
-            tableName = tableName.toLowerCase();
-        }
 
         switch (dbType) {
             case "postgresql":
-                query = "SELECT column_name, data_type, is_nullable, column_default, " +
+                // PostgreSQL için - belirsiz sütun referanslarını düzeltiyoruz
+                String queryPostgres = "SELECT c.column_name, c.data_type, c.is_nullable, c.column_default, " +
                         "CASE WHEN pk.column_name IS NOT NULL THEN true ELSE false END AS is_primary_key " +
                         "FROM information_schema.columns c " +
-                        "LEFT JOIN (" +
+                        "LEFT JOIN ( " +
                         "    SELECT ku.table_name, ku.column_name " +
                         "    FROM information_schema.table_constraints AS tc " +
                         "    JOIN information_schema.key_column_usage AS ku ON tc.constraint_name = ku.constraint_name " +
-                        "    WHERE tc.constraint_type = 'PRIMARY KEY' " +
+                        "    WHERE tc.constraint_type = 'PRIMARY KEY' AND tc.table_schema = 'public' " +
                         ") pk ON c.table_name = pk.table_name AND c.column_name = pk.column_name " +
-                        "WHERE c.table_name = ? " +
-                        "ORDER BY ordinal_position";
-                return jdbcTemplate.queryForList(query, tableName);
+                        "WHERE c.table_name = ? AND c.table_schema = 'public' " +
+                        "ORDER BY c.ordinal_position";
+                return jdbcTemplate.queryForList(queryPostgres, tableName.toLowerCase());
 
             case "oracle":
-                query = "SELECT column_name, data_type, " +
+                String queryOracle = "SELECT column_name, data_type, " +
                         "CASE WHEN nullable = 'Y' THEN 'YES' ELSE 'NO' END as is_nullable, " +
                         "data_default as column_default, " +
                         "CASE WHEN c.column_name IN (" +
@@ -132,19 +200,26 @@ public class DatabaseService {
                         ") THEN 'true' ELSE 'false' END AS is_primary_key " +
                         "FROM user_tab_columns c " +
                         "WHERE c.table_name = ?";
-                return jdbcTemplate.queryForList(query, tableName.toUpperCase(), tableName.toUpperCase());
+                return jdbcTemplate.queryForList(queryOracle, tableName.toUpperCase(), tableName.toUpperCase());
 
             case "mysql":
-                query = "SELECT column_name, data_type, is_nullable, column_default, " +
+                String queryMysql = "SELECT " +
+                        "column_name, " +
+                        "data_type, " +
+                        "is_nullable, " +
+                        "column_default, " +
                         "CASE WHEN column_key = 'PRI' THEN true ELSE false END as is_primary_key " +
                         "FROM information_schema.columns " +
-                        "WHERE table_name = ? AND table_schema = DATABASE()";
-                return jdbcTemplate.queryForList(query, tableName);
+                        "WHERE table_name = ? AND table_schema = DATABASE() " +
+                        "ORDER BY ordinal_position";
+                return jdbcTemplate.queryForList(queryMysql, tableName);
 
             case "sqlserver":
-                query = "SELECT c.name AS column_name, t.name AS data_type, " +
+                String querySqlServer = "SELECT " +
+                        "c.name AS column_name, " +
+                        "t.name AS data_type, " +
                         "CASE WHEN c.is_nullable = 1 THEN 'YES' ELSE 'NO' END AS is_nullable, " +
-                        "c.default_object_id AS column_default, " +
+                        "OBJECT_DEFINITION(c.default_object_id) AS column_default, " +
                         "CASE WHEN pk.column_id IS NOT NULL THEN 1 ELSE 0 END AS is_primary_key " +
                         "FROM sys.columns c " +
                         "INNER JOIN sys.tables tb ON c.object_id = tb.object_id " +
@@ -155,7 +230,7 @@ public class DatabaseService {
                         "    WHERE i.is_primary_key = 1 " +
                         ") pk ON c.column_id = pk.column_id AND c.object_id = pk.object_id " +
                         "WHERE tb.name = ?";
-                return jdbcTemplate.queryForList(query, tableName);
+                return jdbcTemplate.queryForList(querySqlServer, tableName);
 
             default:
                 throw new RuntimeException("Desteklenmeyen veritabanı türü: " + dbType);

@@ -1,0 +1,43 @@
+spring:
+  datasource:
+    # PostgreSQL Configuration - Aktif ba?lant?
+    url: jdbc:postgresql://localhost:5432/KHY_DB
+    username: postgres
+    password: password
+    driver-class-name: org.postgresql.Driver
+
+    # Oracle Configuration - Kullanmak için üstteki PostgreSQL yap?land?rmas?n? yorumlay?p bu bölümü aktifle?tirin
+    #url: jdbc:oracle:thin:@//localhost:1521/XEPDB1
+    #username: system
+    #password: password
+    #driver-class-name: oracle.jdbc.OracleDriver
+
+    # MySQL Configuration - Kullanmak için üstteki yap?land?rmalar? yorumlay?p bu bölümü aktifle?tirin
+    #url: jdbc:mysql://localhost:3306/KHY_DB?useSSL=false&allowPublicKeyRetrieval=true
+    #username: root
+    #password: password
+    #driver-class-name: com.mysql.cj.jdbc.Driver
+
+    # MS SQL Server Configuration - Kullanmak için üstteki yap?land?rmalar? yorumlay?p bu bölümü aktifle?tirin
+    #url: jdbc:sqlserver://localhost:1433;databaseName=KHY_DB;encrypt=false
+    #username: sa
+    #password: password
+    #driver-class-name: com.microsoft.sqlserver.jdbc.SQLServerDriver
+
+  jpa:
+    hibernate:
+      ddl-auto: update
+    show-sql: true
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+        # Oracle için: org.hibernate.dialect.OracleDialect
+        # MySQL için: org.hibernate.dialect.MySQLDialect
+        # MS SQL Server için: org.hibernate.dialect.SQLServerDialect
+
+server:
+  port: 8080
+
+logging:
+  level:
+    com.kocak.kdbmmcp: DEBUG

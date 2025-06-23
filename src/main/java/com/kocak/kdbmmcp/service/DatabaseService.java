@@ -101,6 +101,10 @@ public class DatabaseService {
     public List<Map<String, Object>> getTableStructure(String tableName) {
         String dbType = getDatabaseType();
         String query;
+        if (dbType.equals("postgresql")) {
+            // PostgreSQL'de tablo adını küçük harfe çevir
+            tableName = tableName.toLowerCase();
+        }
 
         switch (dbType) {
             case "postgresql":
@@ -115,7 +119,7 @@ public class DatabaseService {
                         ") pk ON c.table_name = pk.table_name AND c.column_name = pk.column_name " +
                         "WHERE c.table_name = ? " +
                         "ORDER BY ordinal_position";
-                break;
+                return jdbcTemplate.queryForList(query, tableName);
 
             case "oracle":
                 query = "SELECT column_name, data_type, " +
@@ -134,29 +138,28 @@ public class DatabaseService {
                 query = "SELECT column_name, data_type, is_nullable, column_default, " +
                         "CASE WHEN column_key = 'PRI' THEN true ELSE false END as is_primary_key " +
                         "FROM information_schema.columns " +
-                        "WHERE table_name = ? AND table_schema = DATABASE() " +
-                        "ORDER BY ordinal_position";
-                break;
+                        "WHERE table_name = ? AND table_schema = DATABASE()";
+                return jdbcTemplate.queryForList(query, tableName);
 
             case "sqlserver":
-                query = "SELECT column_name, data_type, is_nullable, column_default, " +
-                        "CASE WHEN pk.column_name IS NOT NULL THEN 1 ELSE 0 END AS is_primary_key " +
-                        "FROM information_schema.columns c " +
-                        "LEFT JOIN (" +
-                        "    SELECT ku.table_name, ku.column_name " +
-                        "    FROM information_schema.table_constraints AS tc " +
-                        "    JOIN information_schema.key_column_usage AS ku ON tc.constraint_name = ku.constraint_name " +
-                        "    WHERE tc.constraint_type = 'PRIMARY KEY' " +
-                        ") pk ON c.table_name = pk.table_name AND c.column_name = pk.column_name " +
-                        "WHERE c.table_name = ? " +
-                        "ORDER BY ordinal_position";
-                break;
+                query = "SELECT c.name AS column_name, t.name AS data_type, " +
+                        "CASE WHEN c.is_nullable = 1 THEN 'YES' ELSE 'NO' END AS is_nullable, " +
+                        "c.default_object_id AS column_default, " +
+                        "CASE WHEN pk.column_id IS NOT NULL THEN 1 ELSE 0 END AS is_primary_key " +
+                        "FROM sys.columns c " +
+                        "INNER JOIN sys.tables tb ON c.object_id = tb.object_id " +
+                        "INNER JOIN sys.types t ON c.user_type_id = t.user_type_id " +
+                        "LEFT JOIN ( " +
+                        "    SELECT ic.column_id, ic.object_id FROM sys.index_columns ic " +
+                        "    INNER JOIN sys.indexes i ON ic.object_id = i.object_id AND ic.index_id = i.index_id " +
+                        "    WHERE i.is_primary_key = 1 " +
+                        ") pk ON c.column_id = pk.column_id AND c.object_id = pk.object_id " +
+                        "WHERE tb.name = ?";
+                return jdbcTemplate.queryForList(query, tableName);
 
             default:
                 throw new RuntimeException("Desteklenmeyen veritabanı türü: " + dbType);
         }
-
-        return jdbcTemplate.queryForList(query, tableName);
     }
 
     public List<Map<String, Object>> getTableRelations(String tableName) {
